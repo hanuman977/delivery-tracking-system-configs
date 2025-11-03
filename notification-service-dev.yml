@@ -16,11 +16,3 @@ eureka:
       defaultZone: "http://localhost:8761/eureka"
     register-with-eureka: true
     fetch-registry: true
-
-aws:
-  region: "${AWS_REGION}"
-  ses:
-    sender-email: "${AWS_NOTIFICATION_SENDER}"
-  credentials:
-    access-key: "${AWS_ACCESS_KEY}"
-    secret-key: "${AWS_SECRET_KEY}"
