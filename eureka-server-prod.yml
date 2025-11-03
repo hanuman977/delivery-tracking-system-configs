@@ -1,9 +1,9 @@
 spring:
   config:
-    import: "optional:configserver:http://localhost:8888"
+    import: "optional:configserver:http://config-server:8888"
     
     activate:
-      on-profile: dev
+      on-profile: prod
 eureka:
   client:
     register-with-eureka: false
