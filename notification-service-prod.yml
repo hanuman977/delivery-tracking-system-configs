@@ -4,18 +4,18 @@ spring:
       on:
         profile: prod
 
-  kafka:
-    bootstrap-servers: "${MSK_SERVERLESS_BOOTSTRAP_URL}:9098"
-    properties:
-      security.protocol: SASL_SSL
-      sasl.mechanism: AWS_MSK_IAM
-      sasl.jaas.config: software.amazon.msk.auth.iam.IAMLoginModule required;
-      sasl.client.callback.handler.class: software.amazon.msk.auth.iam.IAMClientCallbackHandler
-    consumer:
-      group-id: "${KAFKA_CONSUMER_GROUP_ID}"
-      auto-offset-reset: "earliest"
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+  # kafka:
+  #   bootstrap-servers: "${MSK_SERVERLESS_BOOTSTRAP_URL}:9098"
+  #   properties:
+  #     security.protocol: SASL_SSL
+  #     sasl.mechanism: AWS_MSK_IAM
+  #     sasl.jaas.config: software.amazon.msk.auth.iam.IAMLoginModule required;
+  #     sasl.client.callback.handler.class: software.amazon.msk.auth.iam.IAMClientCallbackHandler
+  #   consumer:
+  #     group-id: "${KAFKA_CONSUMER_GROUP_ID}"
+  #     auto-offset-reset: "earliest"
+  #     key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  #     value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
 
 eureka:
   client:
