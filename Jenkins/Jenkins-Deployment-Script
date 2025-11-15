@@ -1,0 +1,254 @@
+pipeline {
+    agent any
+    parameters {
+        choice(name: 'STAGES', choices:['Build', 'Deploy', 'BuildandDeploy'], description: 'Select the stage required')
+        string(name: 'BRANCH', defaultValue: '', description: 'Branch to build and deploy')
+    }
+
+    environment {
+        GIT_URL = 'https://github.com/hanuman977/Delivery-Tracking-System-Backend.git'
+        //ECR_REGISTRY = '3799297618st-1.amazonaws.com'
+        ECR_REGISTRY = '331005568745.dkr.ecr.us-east-1.amazonaws.com'
+        BUILDPATH = '/var/jenkins_home/workspace/DEMO-PIPELINE-DELIEVERY-APP/'
+        MODULEPATH = '/var/jenkins_home/workspace/DEMO-PIPELINE-DELIEVERY-APP/Delivery-Tracking-System-Backend'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        IMAGE_NAME1 = "${ECR_REGISTRY}/delivery-tracking:config-server-${IMAGE_TAG}"
+        IMAGE_NAME2 = "${ECR_REGISTRY}/delivery-tracking:eureka-server-${IMAGE_TAG}"
+        IMAGE_NAME3 = "${ECR_REGISTRY}/delivery-tracking:delivery-service-${IMAGE_TAG}"
+        IMAGE_NAME4 = "${ECR_REGISTRY}/delivery-tracking:notification-service-${IMAGE_TAG}"
+        IMAGE_NAME5 = "${ECR_REGISTRY}/delivery-tracking:gateway-server-${IMAGE_TAG}"
+    }
+
+    stages {
+       
+        stage('Workspace Cleanup') {
+            steps {
+                script {
+                    if (fileExists("${BUILDPATH}")) {
+                        deleteDir()
+                        sh "echo deleted workspace"
+                    }
+                }
+            }
+        }
+        stage('Gitlab Checkout') {
+            when {
+                expression { params.STAGES == 'Build' || params.STAGES == 'BuildandDeploy' }
+            }
+            steps {
+                script {
+                    def branch = params.BRANCH
+
+                    if (branch == null || branch.trim().isEmpty()) {
+                        error('Branch parameter is required.')
+                    }
+                      sh '''
+                          git clone ${GIT_URL}
+                          cd ${MODULEPATH}
+                          git checkout ${BRANCH}
+                          git pull origin ${BRANCH}
+                      '''
+                   
+                }
+            }
+        }
+
+        stage('Build, Push and Update Manifest Image tag') {
+            when {
+                expression { params.STAGES == 'Build' || params.STAGES == 'BuildandDeploy' }
+            }
+            steps {
+                script {
+                    dir(MODULEPATH) {
+                        sh """
+                          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                          echo "start building the images"
+                          cd config-server
+                          docker build -t ${IMAGE_NAME1} .
+                          cd ../eureka-server
+                          docker build -t ${IMAGE_NAME2} .
+                          cd ../delivery-service
+                          docker build -t ${IMAGE_NAME3} .
+                          cd ../notification-service
+                          docker build -t ${IMAGE_NAME4} .
+                          cd ../gateway-server
+                          docker build -t ${IMAGE_NAME5} .
+                          echo "completed building all images"  
+                          echo "start pushing images to ECR"  
+                          docker push ${IMAGE_NAME1}
+                          docker push ${IMAGE_NAME2}
+                          docker push ${IMAGE_NAME3}
+                          docker push ${IMAGE_NAME4}
+                          docker push ${IMAGE_NAME5}
+                          echo "images successfully pushed to ECR"  
+                          echo "replacing tag in docker compose file"
+                          sed -i "s/TAG/${BUILD_NUMBER}/g" ${MODULEPATH}/docker-compose-aws.yml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy') {
+        when {
+            expression { params.STAGES == 'Deploy' || params.STAGES == 'BuildandDeploy' }
+        }
+        steps {
+            script {
+                def ip = env.BUILD_DEPLOYMENT
+                echo "Starting deployment on ${ip}"
+   
+                // copy docker-compose file
+                sh """
+                    scp -i /opt/private-key.pem ${MODULEPATH}/docker-compose-aws.yml ec2-user@${ip}:/tmp
+                """
+   
+                // create a local temporary script and send it to remote host
+                writeFile file: 'remote_deploy.sh', text: '''
+                    #!/bin/bash
+                    set -e
+                    cd /opt/services/backend
+                    docker compose -f docker-compose-aws.yml down
+                    mv /tmp/docker-compose-aws.yml .
+                    echo "Pulling credentials from AWS Secrets Manager..."
+                    eval $(aws secretsmanager get-secret-value --secret-id Logistic-Hub-Backend-ENV --query SecretString --output text | jq -r 'to_entries | map("export \\(.key)=\\(.value|@sh)") | .[]')
+                    docker compose -f docker-compose-aws.yml up -d
+                '''
+   
+                sh """
+                    scp -i /opt/private-key.pem remote_deploy.sh ec2-user@${ip}:/tmp/
+                    ssh -i /opt/private-key.pem ec2-user@${ip} "sudo /bin/bash -c 'bash /tmp/remote_deploy.sh'"
+                """
+            }
+        }
+    }
+  }
+}
+
+------------------------------------------------------------------------------------------------------------------------
+
+FRONTEND PIPELINE - DEMO-PIPELINE-DELIEVERY-WEB
+
+pipeline {
+    agent any
+    parameters {
+        choice(name: 'STAGES', choices:['Build', 'Deploy', 'BuildandDeploy'], description: 'Select the stage required')
+        string(name: 'BRANCH', defaultValue: '', description: 'Branch to build and deploy')
+    }
+
+    environment {
+        GIT_URL = 'https://github.com/hanuman977/Delivery-Tracking-System-Frontend.git'
+        //ECR_REGISTRY = '3799297618st-1.amazonaws.com'
+        ECR_REGISTRY = '331005568745.dkr.ecr.us-east-1.amazonaws.com'
+        BUILDPATH = '/var/jenkins_home/workspace/DEMO-PIPELINE-DELIEVERY-WEB/'
+        MODULEPATH = '/var/jenkins_home/workspace/DEMO-PIPELINE-DELIEVERY-WEB/Delivery-Tracking-System-Frontend'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        IMAGE_NAME = "${ECR_REGISTRY}/delivery-tracking:frontend-${IMAGE_TAG}"
+    }
+
+    stages {
+       
+        stage('Workspace Cleanup') {
+            steps {
+                script {
+                    if (fileExists("${BUILDPATH}")) {
+                        deleteDir()
+                        sh "echo deleted workspace"
+                    }
+                }
+            }
+        }
+        stage('Gitlab Checkout') {
+            when {
+                expression { params.STAGES == 'Build' || params.STAGES == 'BuildandDeploy' }
+            }
+            steps {
+                script {
+                    def branch = params.BRANCH
+
+                    if (branch == null || branch.trim().isEmpty()) {
+                        error('Branch parameter is required.')
+                    }
+                      sh '''
+                          git clone ${GIT_URL}
+                          cd ${MODULEPATH}
+                          git checkout ${BRANCH}
+                          git pull origin ${BRANCH}
+                      '''
+                   
+                }
+            }
+        }
+
+        stage('Build, Push and Update Manifest Image tag') {
+            when {
+                expression { params.STAGES == 'Build' || params.STAGES == 'BuildandDeploy' }
+            }
+            steps {
+                script {
+                    dir(MODULEPATH) {
+                        withCredentials([
+                            usernamePassword(credentialsId: 'VITE_API_BASE_URL', usernameVariable: 'K1', passwordVariable: 'V1'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_AUTH_URL', usernameVariable: 'K2', passwordVariable: 'V2'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_TOKEN_URL', usernameVariable: 'K3', passwordVariable: 'V3'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_CLIENT_ID', usernameVariable: 'K4', passwordVariable: 'V4'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_CLIENT_SECRET', usernameVariable: 'K5', passwordVariable: 'V5'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_SCOPES', usernameVariable: 'K6', passwordVariable: 'V6'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_REDIRECT_URI', usernameVariable: 'K7', passwordVariable: 'V7'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_LOGOUT_REDIRECT', usernameVariable: 'K8', passwordVariable: 'V8'),
+                            usernamePassword(credentialsId: 'VITE_OAUTH_LOGOUT_URL', usernameVariable: 'K9', passwordVariable: 'V9')
+                        ]) {
+                            sh """
+                              aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                              echo "start building the images"
+                              docker build \
+                                  --build-arg ${K1}="${V1}" \
+                                  --build-arg ${K2}="${V2}" \
+                                  --build-arg ${K3}="${V3}" \
+                                  --build-arg ${K4}="${V4}" \
+                                  --build-arg ${K5}="${V5}" \
+                                  --build-arg ${K6}="${V6}" \
+                                  --build-arg ${K7}="${V7}" \
+                                  --build-arg ${K8}="${V8}" \
+                                  --build-arg ${K9}="${V9}" \
+                                  -t ${IMAGE_NAME} .
+                              echo "completed building all images"  
+                              echo "start pushing images to ECR"  
+                              docker push ${IMAGE_NAME}
+                              echo "images successfully pushed to ECR"  
+                              echo "replacing tag in docker compose file"
+                              sed -i "s/TAG/${BUILD_NUMBER}/g" ${MODULEPATH}/docker-compose.yml
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+       stage('Deploy') {
+            when {
+                expression { params.STAGES == 'Deploy' || params.STAGES == 'BuildandDeploy' }
+            }
+            steps {
+                script {
+                    def ip = env.BUILD_DEPLOYMENT
+                    echo "Starting the deployment on application server ${ip}"
+                            sh """
+                            scp -i /opt/private-key.pem ${MODULEPATH}/docker-compose.yml ec2-user@${ip}:/tmp
+                            ssh -i /opt/private-key.pem ec2-user@${ip} <<EOF
+                            sudo -i
+                            cd /opt/services/frontend
+                            docker compose down
+                            mv /tmp/docker-compose.yml .
+                            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            docker compose -f docker-compose.yml up -d
+                            exit
+                            exit
+                            EOF
+                            """
+                }
+                       
+            }
+       }
+    }
+}
